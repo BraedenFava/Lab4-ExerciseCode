@@ -511,7 +511,7 @@ void loop() {
             break;
 
           case 9:
-            if (pos[1] < initEncoderPosB - 5/3.5*1096){
+            if (pos[1] > initEncoderPosB + 5/3.5*1096){
               setMotor(-1, driveSpeed, cIN1Pin[0], cIN2Pin[0]);     // left motor backward
               initEncoderPosA = pos[0];
               initEncoderPosB = pos[1];
