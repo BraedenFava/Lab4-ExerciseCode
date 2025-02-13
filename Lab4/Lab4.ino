@@ -116,7 +116,8 @@ uint8_t driveIndex           = 0;                                      // state 
 Ultrasonic ultrasonic        = {21, 22};                               // trigger on GPIO21 and echo on GPIO22
 long initEncoderPosA         = 0;                                      //initial encoder position of motor A when entering exercise mode
 long initEncoderPosB         = 0;                                      //initial encoder position of motor B when entering exercise mode
-uint32_t lastPulse          = 0;                                                 // last valid pulse duration from HC-SR04
+uint32_t lastPulse           = 0;                                                 // last valid pulse duration from HC-SR04
+int armServoPos              = 2200;
 
 // Declare SK6812 SMART LED object
 //   Argument 1 = Number of LEDs (pixels) in use
@@ -418,54 +419,68 @@ void loop() {
             if (pos[0] - initEncoderPosA > 28/(3.5*PI)*1096 && initEncoderPosB - pos[1] > 28/(3.5*PI)*1096){
               setMotor(0, 0, cIN1Pin[0], cIN2Pin[0]);                    // stop left motor
               setMotor(0, 0, cIN1Pin[1], cIN2Pin[1]);                    // stop right motor
-              ledcWrite(cArmServo, cArmServoUp);                        // set the desired servo position
-              ledcWrite(cClawServo, cClawServoOpen);
-              timerCount2sec = 0;                                        // reset 2 second timer count
-              timeUp2sec = false;                                        // reset 2 second timer
+              timerCount3sec = 0;                                        // reset 2 second timer count
+              timeUp3sec = false;                                        // reset 2 second timer
               driveIndex = 4;                                            // next state: wait 2 seconds
             }
             Serial.print("case 3");
             break;
 
           case 4:
-            // check if 2s have passed
-            if (timeUp2sec){
-              setMotor(1, driveSpeed, cIN1Pin[0], cIN2Pin[0]);     // left motor forward
-              setMotor(-1, driveSpeed-45, cIN1Pin[1], cIN2Pin[1]);    // right motor reverse (opposite dir from left)
-              driveIndex = 5;                                      // next state: drive until within 5cm of an obstacle
+            if (timeUp3sec){
+              armServoPos--;
+              ledcWrite(cArmServo, armServoPos);
+              if (Serial2.available() > 0) {                                 // if data available
+                receivedData = Serial2.read();                               // read incoming byte
+                Serial.printf("%c", receivedData);
+                  if (receivedData == 'U'){
+                    driveIndex = 5;
+                    timerCount3sec = 0;
+                    timeUp3sec = false;
+                  }
+              }
             }
-            Serial.print("case 4");
-            break;
+            break; 
 
           case 5:
+            // check if 2s have passed
+            if (timeUp3sec){
+              setMotor(1, driveSpeed, cIN1Pin[0], cIN2Pin[0]);     // left motor forward
+              setMotor(-1, driveSpeed-45, cIN1Pin[1], cIN2Pin[1]);    // right motor reverse (opposite dir from left)
+              driveIndex = 6;                                      // next state: drive until within 5cm of an obstacle
+            }
+            Serial.print("case 5");
+            break;
+
+          case 6:
             // check if MSEBot is within 15cm of obstacle
             // start US measurement once every 100 cycles (~100 ms)
-          if (cycles == 0) {
-            ping(&ultrasonic);                                           // start US measurement
-          }
-          cycles++;
-          if (cycles == 100) {                                           // 100 cycles = ~100 ms
-            cycles = 0;
-          }
-          pulseDuration = getEchoTime(&ultrasonic);                      // check if new measurement is available
-          // if valid measurement, update variable and output to serial
-          if (pulseDuration > 0) {
-            lastPulse = pulseDuration;
-            Serial.printf("Ultrasound: %ld ms = %ld cm = %ld in\n", lastPulse, usToCm(lastPulse), usToIn(lastPulse));
-          }
+            if (cycles == 0) {
+              ping(&ultrasonic);                                           // start US measurement
+            }
+            cycles++;
+            if (cycles == 100) {                                           // 100 cycles = ~100 ms
+              cycles = 0;
+            }
+            pulseDuration = getEchoTime(&ultrasonic);                      // check if new measurement is available
+            // if valid measurement, update variable and output to serial
+            if (pulseDuration > 0) {
+              lastPulse = pulseDuration;
+              Serial.printf("Ultrasound: %ld ms = %ld cm = %ld in\n", lastPulse, usToCm(lastPulse), usToIn(lastPulse));
+            }
             if (usToCm(lastPulse) <= 15){
               Serial.printf("%ld", usToCm(lastPulse));
               setMotor(0, 0, cIN1Pin[0], cIN2Pin[0]);                    // stop left motor
               setMotor(0, 0, cIN1Pin[1], cIN2Pin[1]);                    // stop right motor
-              driveIndex = 6;                                            // next state: wait 3 seconds
+              driveIndex = 7;                                            // next state: wait 3 seconds
               timerCount3sec = 0;                                          // reset 3 second timer count
-              timeUp3sec = true;
+              timeUp3sec = false;
             }
             //Serial.print("case 5");
             
             break;
 
-          case 6:
+          case 7:
           //grab with the claw, then back up.
             if (timeUp3sec){
               //close claw
@@ -480,47 +495,40 @@ void loop() {
               if(1) {
               initEncoderPosA = pos[0];
               initEncoderPosB = pos[1];
-              driveIndex = 7;}
+              driveIndex = 8;
+              }
             }
-            
-            
-            // ensure current motor encoder position is equal to or behind initial motor encoder position
-            /*if (pos[0] <= initEncoderPosA && pos[1] <= initEncoderPosB){
-              setMotor(0, 0, cIN1Pin[0], cIN2Pin[0]);                    // stop left motor
-              setMotor(0, 0, cIN1Pin[1], cIN2Pin[1]);                    // stop right motor
-              robotModeIndex = 0;                                        // return to stopped robotModeIndex
-            } */
-           // Serial.print("case 5");
             break;
-            case 7:
-            if (pos[0] < initEncoderPosA - 28/(3.5*PI)*1096 && pos[1] < initEncoderPosB - 28/(3.5*PI)*1096){
+
+          case 8:
+            if (pos[0] < initEncoderPosA - 28/(3.5*PI)*1096 && pos[1] > initEncoderPosB + 28/(3.5*PI)*1096){
               setMotor(0, 0, cIN1Pin[0], cIN2Pin[0]);                    // stop left motor
               initEncoderPosA = pos[0];
               initEncoderPosB = pos[1];
-              driveIndex = 8;
+              driveIndex = 9;
             }
            
             break;
-            case 8;
+
+          case 9:
             if (pos[1] < initEncoderPosB - 5/3.5*1096){
               setMotor(-1, driveSpeed, cIN1Pin[0], cIN2Pin[0]);     // left motor backward
               initEncoderPosA = pos[0];
               initEncoderPosB = pos[1];
-              driveIndex = 9;                                      // next state: finish driving back and drop claw
+              driveIndex = 10;                                      // next state: finish driving back and drop claw
             }
             break;
-            case 9;
-            if (pos[0] < initEncoderPosA - 28/(3.5*PI)*1096 && pos[1] < initEncoderPosB - 28/(3.5*PI)*1096){
+
+          case 10:
+            if (pos[0] < initEncoderPosA - 28/(3.5*PI)*1096 && pos[1] > initEncoderPosB + 28/(3.5*PI)*1096){
               setMotor(0, 0, cIN1Pin[0], cIN2Pin[0]);                    // stop left motor
               setMotor(0, 0, cIN1Pin[1], cIN2Pin[1]);                    // stop right motor
               ledcWrite(cClawServo, cClawServoOpen);                      // drop ball
               driveIndex = 0;                                            // all done
             }
-            break;
-
-          
+            break; 
         }
-        }
+      }
       break;
     }
   }
